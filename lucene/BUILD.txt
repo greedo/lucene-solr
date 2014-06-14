@@ -29,10 +29,15 @@ according to the instructions at:
 
   http://ant.apache.org/manual
 
+You can check if ant is installed by running: ant -version 
+
 Finally, you'll need to install ivy into your ant lib folder
 (~/.ant/lib). You can get it from http://ant.apache.org/ivy/.
 If you skip this step, the Lucene build system will offer to do it 
 for you.
+
+If Ivy is not installed properly, you should get an error while                                                                                                                  
+trying to build the Lucene JARs using Ant.
 
 Step 1) Download Lucene from Apache
 
@@ -85,6 +90,7 @@ Please post suggestions, questions, corrections or additions to this
 document to the lucene-user mailing list.
 
 This file was originally written by Steven J. Owens <puff@darksleep.com>.
-This file was modified by Jon S. Stevens <jon@latchkey.com>.
+This file was modified by Jon S. Stevens <jon@latchkey.com>
+and Joe Cabrera <jcabrera@eminorlabs.com>.
 
 Copyright (c) 2001-2005 The Apache Software Foundation.  All rights reserved.
