@@ -62,7 +62,7 @@ public class SnapShooter {
     solrCore = core;
     if (location == null) snapDir = core.getDataDir();
     else  {
-      File base = new File(core.getCoreDescriptor().getRawInstanceDir());
+      File base = new File(core.getCoreDescriptor().getInstanceDir());
       snapDir = org.apache.solr.util.FileUtils.resolvePath(base, location).getAbsolutePath();
       File dir = new File(snapDir);
       if (!dir.exists())  dir.mkdirs();
@@ -155,6 +155,7 @@ public class SnapShooter {
       details.add("status", "success");
       details.add("snapshotCompletedAt", new Date().toString());
       details.add("snapshotName", snapshotName);
+      LOG.info("Done creating backup snapshot: " + (snapshotName == null ? "<not named>" : snapshotName));
     } catch (Exception e) {
       SnapPuller.delTree(snapShotDir);
       LOG.error("Exception while creating snapshot", e);
@@ -204,6 +205,7 @@ public class SnapShooter {
 
     if(isSuccess) {
       details.add("status", "success");
+      details.add("snapshotDeletedAt", new Date().toString());
     } else {
       details.add("status", "Unable to delete snapshot: " + snapshotName);
       LOG.warn("Unable to delete snapshot: " + snapshotName);

@@ -84,8 +84,105 @@ Other Changes
 * SOLR-5868: HttpClient should be configured to use ALLOW_ALL_HOSTNAME hostname
   verifier to simplify SSL setup. (Steve Davids via Mark Miller)
 
-* SOLR-6015: Better way to handle managed synonyms when ignoreCase=true
-  (Timothy Potter)
+* SOLR-6169: Finish removal of CoreAdminHandler handleAlias action begun in 4.9 
+  (Alan Woodward)
+
+* SOLR-6215: TrieDateField should directly extend TrieField instead of
+  forwarding to a wrapped TrieField. (Steve Rowe)
+
+* SOLR-2245: Numerous improvements of the MailEntityProcessor, including using
+  the GMail extensions to do server-side date filtering and using GreenMail in
+  the unit test to enable automated tests. (Timothy Potter)
+
+==================  4.10.0 =================
+
+Versions of Major Components
+---------------------
+Apache Tika 1.5
+Carrot2 3.9.0
+Velocity 1.7 and Velocity Tools 2.0
+Apache UIMA 2.3.1
+Apache ZooKeeper 3.4.6
+
+Upgrading from Solr 4.9
+----------------------
+
+* In Solr 3.6, all primitive field types were changed to omit norms by default when the
+  schema version is 1.5 or greater (SOLR-3140), but TrieDateField's default was mistakenly
+  not changed.  As of Solr 4.10, TrieDateField omits norms by default (see SOLR-6211).
+
+* Creating a SolrCore via CoreContainer.create() no longer requires an
+  additional call to CoreContainer.register() to make it available to clients
+  (see SOLR-6170).
+
+Detailed Change List
+----------------------
+
+New Features
+----------------------
+* SOLR-6196: The overseerstatus collection API instruments amILeader and ZK state update calls.
+  (shalin)
+
+* SOLR-6069: The 'clusterstatus' API should return 'roles' information. (shalin)
+
+* SOLR-6044: The 'clusterstatus' API should return live_nodes as well. (shalin)
+
+* SOLR-5768: Add a distrib.singlePass parameter to make EXECUTE_QUERY phase fetch all fields
+  and skip GET_FIELDS. (Gregg Donovan, shalin)
+
+Bug Fixes
+----------------------
+
+* SOLR-6095 : SolrCloud cluster can end up without an overseer with overseer roles (Noble Paul, Shalin Mangar)
+
+* SOLR-6165: DataImportHandler should write BigInteger and BigDecimal values as strings.
+  (Anand Sengamalai via shalin)
+  
+* SOLR-6189: Avoid publishing the state as down if the node is not live when determining
+  if a replica should be in leader-initiated recovery. (Timothy Potter)
+
+* SOLR-6197: The MIGRATE collection API doesn't work when legacyCloud=false is set
+  in cluster properties. (shalin)
+
+* SOLR-6206: The migrate collection API fails on retry if temp collection already exists.
+  (shalin)
+
+* SOLR-6072: The 'deletereplica' API should remove the data and instance directory by default.
+  (shalin)
+  
+* SOLR-6211: TrieDateField doesn't default to omitNorms=true. (Michael Ryan, Steve Rowe)
+
+* SOLR-6159: A ZooKeeper session expiry during setup can keep LeaderElector from joining elections.
+  (Steven Bower, shalin)
+
+* SOLR-6223: SearchComponents may throw NPE when using shards.tolerant and there is a failure
+  in the 'GET_FIELDS/GET_HIGHLIGHTS/GET_DEBUG' phase. (Tomás Fernández Löbbe via shalin)
+
+Optimizations
+---------------------
+
+* LUCENE-5803: Solr's schema now uses DelegatingAnalyzerWrapper. This uses less heap
+  for cached TokenStreamComponents because it caches per FieldType not per Field, so
+  indexes with many fields of same type just use one TokenStream per thread.
+  (Shay Banon, Uwe Schindler, Robert Muir)
+
+Other Changes
+---------------------
+
+* SOLR-6173: Fixed wrong failure message in TestDistributedSearch. (shalin)
+
+* SOLR-6178, LUCENE-5775: Deprecate JaspellLookupFactory. (Uwe Schindler,
+  Mike McCandless)
+
+* SOLR-5902: Corecontainer level mbeans are not exposed (noble)
+
+* SOLR-6194: Allow access to DataImporter and DIHConfiguration from DataImportHandler.
+  (Aaron LaBella via shalin)
+
+* SOLR-6170: CoreContainer.preRegisterInZk() and CoreContainer.register() commands
+  are merged into CoreContainer.create(). (Alan Woodward)
+
+* SOLR-6171: Remove unused SolrCores coreNameToOrig map (Alan Woodward)
 
 ==================  4.9.0 ==================
 
@@ -100,7 +197,11 @@ Apache ZooKeeper 3.4.6
 Upgrading from Solr 4.8
 ----------------------
 
-* placeholder
+* Support for DiskDocValuesFormat (ie: fieldTypes configured with docValuesFormat="Disk") 
+  has been removed due to poor performance.  If you have an existing fieldTypes using 
+  DiskDocValuesFormat please modify your schema.xml to remove the 'docValuesFormat' 
+  attribute, and optimize your index to rewrite it into the default codec, prior to 
+  upgrading to 4.9.  See LUCENE-5761 for more details.
 
 Detailed Change List
 ----------------------
@@ -135,13 +236,26 @@ New Features
 * SOLR-6150: Add new AnalyticsQuery to support pluggable analytics
   (Joel Bernstein)
 
+* SOLR-6125: Allow SolrIndexWriter to close without waiting for merges
+  (Christine Poerschke via Alan Woodward)
+
+* SOLR-6064: DebugComponent track output should be returned as a JSON
+  object rather than a list (Christine Poerschke, Alan Woodward)
+
 
 Bug Fixes
 ----------------------
 
+* SOLR-5956: Use coreDescriptor.getInstanceDir() instead of getRawInstanceDir()
+  in the SnapShooter to avoid problems when solr.solr.home is a symbolic link.
+  (Timothy Potter) 
+
 * SOLR-6002: Fix a couple of ugly issues around SolrIndexWriter close and 
   rollback as well as how SolrIndexWriter manages it's ref counted directory
   instance. (Mark Miller, Gregory Chanan)
+
+* SOLR-6015: Better way to handle managed synonyms when ignoreCase=true
+  (Timothy Potter)
 
 * SOLR-6104: The 'addreplica' Collection API does not support 'async' parameter.
   (shalin)
@@ -172,11 +286,24 @@ Bug Fixes
 * SOLR-6158: Relative configSetBase directories were resolved relative to the 
   container CWD, rather than solr.home. (Simon Endele, Alan Woodward)
 
-* SOLR-6056: Don't publish recovery state until recovery runs to avoid overwhelming
-  the overseer state queue. (Raintung Li, Mark Miller, shalin)
-
-* SOLR-5426: Fixed a bug in ReverseWildCardFilter that could cause 
+* SOLR-5426: Fixed a bug in ReverseWildCardFilter that could cause
   InvalidTokenOffsetsException when highlighting. (Uwe Schindler, Arun Kumar, via hossman)
+
+* SOLR-6175: DebugComponent throws NPE on shard exceptions when using shards.tolerant.
+  (Tomás Fernández Löbbe via shalin)
+
+* SOLR-6129: DateFormatTransformer doesn't resolve dateTimeFormat. (Aaron LaBella via shalin)
+
+* SOLR-6164: Copy Fields Schema additions are not distributed to other nodes.
+  (Gregory Chanan via Steve Rowe)
+
+* SOLR-6160: An error was sometimes possible if a distributed search included grouping
+  with group.facet, faceting on facet.field and either facet.range or facet.query.
+  (David Smiley)
+
+* SOLR-6182: Data stored by the RestManager could not be reloaded after core restart, causing
+  the core to fail to load; cast the data loaded from storage to the correct data type.
+  (Timothy Potter)
 
 Other Changes
 ---------------------
@@ -229,6 +356,12 @@ Other Changes
 
 * SOLR-6153: ReplicationHandler backup response format should contain backup name.
   (Varun Thacker via shalin)
+
+* SOLR-6169: Remove broken handleAlias action in CoreAdminHandler (Alan
+  Woodward)
+
+* SOLR-6128: Removed deprecated analysis factories and fieldTypes from the example
+  schema.xml (hossman)
 
 Optimizations
 ----------------------

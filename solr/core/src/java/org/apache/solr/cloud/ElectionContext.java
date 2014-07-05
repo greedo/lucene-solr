@@ -51,9 +51,9 @@ public abstract class ElectionContext {
   final ZkNodeProps leaderProps;
   final String id;
   final String leaderPath;
-  String leaderSeqPath;
+  volatile String leaderSeqPath;
   private SolrZkClient zkClient;
-  
+
   public ElectionContext(final String coreNodeName,
       final String electionPath, final String leaderPath, final ZkNodeProps leaderProps, final SolrZkClient zkClient) {
     this.id = coreNodeName;
@@ -66,12 +66,16 @@ public abstract class ElectionContext {
   public void close() {}
   
   public void cancelElection() throws InterruptedException, KeeperException {
-    try {
-      log.info("canceling election {}",leaderSeqPath );
-      zkClient.delete(leaderSeqPath, -1, true);
-    } catch (NoNodeException e) {
-      // fine
-      log.warn("cancelElection did not find election node to remove",e);
+    if( leaderSeqPath != null ){
+      try {
+        log.info("canceling election {}",leaderSeqPath );
+        zkClient.delete(leaderSeqPath, -1, true);
+      } catch (NoNodeException e) {
+        // fine
+        log.warn("cancelElection did not find election node to remove {}" ,leaderSeqPath);
+      }
+    } else {
+      log.warn("cancelElection skipped as this context has not been initialized");
     }
   }
 
@@ -80,6 +84,10 @@ public abstract class ElectionContext {
   public void checkIfIamLeaderFired() {}
 
   public void joinedElectionFired() {}
+
+  public  ElectionContext copy(){
+    throw new UnsupportedOperationException("copy");
+  }
 }
 
 class ShardLeaderElectionContextBase extends ElectionContext {
@@ -528,6 +536,11 @@ final class OverseerElectionContext extends ElectionContext {
   public void cancelElection() throws InterruptedException, KeeperException {
     super.cancelElection();
     overseer.close();
+  }
+
+  @Override
+  public ElectionContext copy() {
+    return new OverseerElectionContext(zkClient, overseer ,id);
   }
   
   @Override

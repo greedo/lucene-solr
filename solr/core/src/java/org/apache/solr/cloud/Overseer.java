@@ -293,9 +293,20 @@ public class Overseer {
     }
 
     private void updateZkStates(ClusterState clusterState) throws KeeperException, InterruptedException {
-      lastUpdatedTime = System.nanoTime();
-      zkClient.setData(ZkStateReader.CLUSTER_STATE, ZkStateReader.toJSON(clusterState), true);
-
+      TimerContext timerContext = stats.time("update_state");
+      boolean success = false;
+      try {
+        zkClient.setData(ZkStateReader.CLUSTER_STATE, ZkStateReader.toJSON(clusterState), true);
+        lastUpdatedTime = System.nanoTime();
+        success = true;
+      } finally {
+        timerContext.stop();
+        if (success)  {
+          stats.success("update_state");
+        } else  {
+          stats.error("update_state");
+        }
+      }
     }
 
     private void checkIfIamStillLeader() {
@@ -308,29 +319,31 @@ public class Overseer {
         log.error("could not read the data" ,e);
         return;
       }
-      Map m = (Map) ZkStateReader.fromJSON(data);
-      String id = (String) m.get("id");
-      if(overseerCollectionProcessor.getId().equals(id)){
-        try {
-          log.info("I'm exiting , but I'm still the leader");
-          zkClient.delete(path,stat.getVersion(),true);
-        } catch (KeeperException.BadVersionException e) {
-          //no problem ignore it some other Overseer has already taken over
-        } catch (Exception e) {
-          log.error("Could not delete my leader node ", e);
-        } finally {
+      try {
+        Map m = (Map) ZkStateReader.fromJSON(data);
+        String id = (String) m.get("id");
+        if(overseerCollectionProcessor.getId().equals(id)){
           try {
-            if(zkController !=null && !zkController.getCoreContainer().isShutDown()){
-              zkController.rejoinOverseerElection();
-            }
-
+            log.info("I'm exiting , but I'm still the leader");
+            zkClient.delete(path,stat.getVersion(),true);
+          } catch (KeeperException.BadVersionException e) {
+            //no problem ignore it some other Overseer has already taken over
           } catch (Exception e) {
-            log.error("error canceling overseer election election  ",e);
+            log.error("Could not delete my leader node ", e);
           }
-        }
 
-      } else{
-        log.info("somebody else has already taken up the overseer position");
+        } else{
+          log.info("somebody else has already taken up the overseer position");
+        }
+      } finally {
+        //if I am not shutting down, Then I need to rejoin election
+        try {
+          if (zkController != null && !zkController.getCoreContainer().isShutDown()) {
+            zkController.rejoinOverseerElection(null, false);
+          }
+        } catch (Exception e) {
+          log.warn("Unable to rejoinElection ",e);
+        }
       }
     }
 
@@ -377,9 +390,13 @@ public class Overseer {
       } else if(CLUSTERPROP.isEqual(operation)){
            handleProp(message);
       } else if( QUIT.equals(operation)){
-        log.info("Quit command received {}", LeaderElector.getNodeName(myId));
-        overseerCollectionProcessor.close();
-        close();
+        if(myId.equals( message.get("id"))){
+          log.info("Quit command received {}", LeaderElector.getNodeName(myId));
+          overseerCollectionProcessor.close();
+          close();
+        } else {
+          log.warn("Overseer received wrong QUIT message {}", message);
+        }
       } else{
         throw new RuntimeException("unknown operation:" + operation
             + " contents:" + message.getProperties());
@@ -579,6 +596,8 @@ public class Overseer {
     }
 
     private LeaderStatus amILeader() {
+      TimerContext timerContext = stats.time("am_i_leader");
+      boolean success = true;
       try {
         ZkNodeProps props = ZkNodeProps.load(zkClient.getData(
             "/overseer_elect/leader", null, null, true));
@@ -586,6 +605,7 @@ public class Overseer {
           return LeaderStatus.YES;
         }
       } catch (KeeperException e) {
+        success = false;
         if (e.code() == KeeperException.Code.CONNECTIONLOSS) {
           log.error("", e);
           return LeaderStatus.DONT_KNOW;
@@ -595,7 +615,15 @@ public class Overseer {
           log.warn("", e);
         }
       } catch (InterruptedException e) {
+        success = false;
         Thread.currentThread().interrupt();
+      } finally {
+        timerContext.stop();
+        if (success)  {
+          stats.success("am_i_leader");
+        } else  {
+          stats.error("am_i_leader");
+        }
       }
       log.info("According to ZK I (id=" + myId + ") am no longer a leader.");
       return LeaderStatus.NO;

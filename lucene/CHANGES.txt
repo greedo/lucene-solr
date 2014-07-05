@@ -94,6 +94,48 @@ Other
 * LUCENE-5563: Removed sep layout: which has fallen behind on features and doesn't
   perform as well as other options.  (Robert Muir)
 
+======================= Lucene 4.10.0 ======================
+
+New Features
+
+* LUCENE-5778: Support hunspell morphological description fields/aliases.
+  (Robert Muir)
+
+* LUCENE-5801: Added (back) OrdinalMappingAtomicReader for merging search
+  indexes that contain category ordinals from separate taxonomy indexes.
+  (Nicola Buso via Shai Erera)
+  
+API Changes
+
+* LUCENE-5752: Simplified Automaton API to be immutable. (Mike McCandless)
+
+* LUCENE-5793: Add equals/hashCode to FieldType. (Shay Banon, Robert Muir)
+
+Optimizations
+
+* LUCENE-5780: Make OrdinalMap more memory-efficient, especially in case the
+  first segment has all values. (Adrien Grand, Robert Muir)
+
+* LUCENE-5782: OrdinalMap now sorts enums before being built in order to
+  improve compression. (Adrien Grand)
+
+* LUCENE-5798: Optimize MultiDocsEnum reuse. (Robert Muir)
+
+* LUCENE-5799: Optimize numeric docvalues merging. (Robert Muir)
+
+* LUCENE-5797: Optimize norms merging (Adrien Grand, Robert Muir)
+
+* LUCENE-5803: Add DelegatingAnalyzerWrapper, an optimized variant
+  of AnalyzerWrapper that doesn't allow to wrap components or readers.
+  This wrapper class is the base class of all analyzers that just delegate
+  to another analyzer, e.g. per field name: PerFieldAnalyzerWrapper and
+  Solr's schema support.  (Shay Banon, Uwe Schindler, Robert Muir)
+
+Test Framework
+
+* LUCENE-5786: Unflushed/ truncated events file (hung testing subprocess).
+  (Dawid Weiss)
+
 ======================= Lucene 4.9.0 =======================
 
 Changes in Runtime Behavior
@@ -226,6 +268,11 @@ API Changes
 * LUCENE-5757: Moved RamUsageEstimator's reflection-based processing to RamUsageTester
   in the test-framework module. (Robert Muir)
 
+* LUCENE-5761: Removed DiskDocValuesFormat, it was very inefficient and saved very little
+  RAM over the default codec. (Robert Muir)
+
+* LUCENE-5775: Deprecate JaspellLookup. (Mike McCandless)
+
 Optimizations
 
 * LUCENE-5603: hunspell stemmer more efficiently strips prefixes
@@ -279,6 +326,12 @@ Optimizations
 
 * LUCENE-5751: Speed up MemoryDocValues. (Adrien Grand, Robert Muir)
 
+* LUCENE-5767: OrdinalMap optimizations, that mostly help on low cardinalities.
+  (Martijn van Groningen, Adrien Grand) 
+
+* LUCENE-5769: SingletonSortedSetDocValues now supports random access ordinals.
+  (Robert Muir)
+
 Bug fixes
 
 * LUCENE-5738: Ensure NativeFSLock prevents opening the file channel for the
@@ -323,6 +376,9 @@ Bug fixes
 
 * LUCENE-5747: Project-specific settings for the eclipse development
   environment will prevent automatic code reformatting. (Shawn Heisey)
+
+* LUCENE-5768, LUCENE-5777: Hunspell condition checks containing character classes
+  were buggy. (Clinton Gormley, Robert Muir)
 
 Test Framework
 

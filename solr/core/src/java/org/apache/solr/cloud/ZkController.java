@@ -1691,9 +1691,33 @@ public final class ZkController {
     return out;
   }
 
-  public void rejoinOverseerElection() {
+  public void rejoinOverseerElection(String electionNode, boolean joinAtHead) {
     try {
-      overseerElector.retryElection();
+      if(electionNode !=null){
+        //this call is from inside the JVM  . not from CoreAdminHandler
+        if(overseerElector.getContext() == null || overseerElector.getContext().leaderSeqPath == null){
+          overseerElector.retryElection(new OverseerElectionContext(zkClient,
+              overseer, getNodeName()), joinAtHead);
+          return;
+        }
+        if(!overseerElector.getContext().leaderSeqPath.endsWith(electionNode)){
+          log.warn("Asked to rejoin with wrong election node : {}, current node is {}",electionNode, overseerElector.getContext().leaderSeqPath);
+          //however delete it . This is possible when the last attempt at deleting the election node failed.
+          if(electionNode.startsWith(getNodeName())){
+            try {
+              zkClient.delete(OverseerElectionContext.PATH+LeaderElector.ELECTION_NODE+"/"+electionNode,-1,true);
+            } catch (NoNodeException e) {
+              //no problem
+            } catch (InterruptedException e){
+              Thread.currentThread().interrupt();
+            } catch(Exception e) {
+              log.warn("Old election node exists , could not be removed ",e);
+            }
+          }
+        }
+      }else {
+        overseerElector.retryElection(overseerElector.getContext(), joinAtHead);
+      }
     } catch (Exception e) {
       throw new SolrException(ErrorCode.SERVER_ERROR, "Unable to rejoin election", e);
     }
@@ -1752,9 +1776,11 @@ public final class ZkController {
     // about the same replica having trouble and we only need to send the "needs"
     // recovery signal once
     boolean nodeIsLive = true;
+    boolean publishDownState = false;
     synchronized (replicasInLeaderInitiatedRecovery) {
       if (replicasInLeaderInitiatedRecovery.containsKey(replicaUrl)) {     
         if (!forcePublishState) {
+          log.debug("Replica {} already in leader-initiated recovery handling.", replicaUrl);
           return false; // already in this recovery process
         }
       }
@@ -1770,22 +1796,32 @@ public final class ZkController {
             getLeaderInitiatedRecoveryZnodePath(collection, shardId, replicaCoreName));          
         // create a znode that requires the replica needs to "ack" to verify it knows it was out-of-sync
         updateLeaderInitiatedRecoveryState(collection, shardId, replicaCoreName, ZkStateReader.DOWN);
+        log.info("Put replica "+replicaCoreName+" on "+
+          replicaNodeName+" into leader-initiated recovery.");
+        publishDownState = true;        
       } else {
         nodeIsLive = false; // we really don't need to send the recovery request if the node is NOT live
+        log.info("Node "+replicaNodeName+
+          " is not live, so skipping leader-initiated recovery for replica: "+
+          replicaCoreName);
+        // publishDownState will be false to avoid publishing the "down" state too many times
+        // as many errors can occur together and will each call into this method (SOLR-6189)        
       }      
     }    
     
-    String replicaCoreName = replicaCoreProps.getCoreName();    
-    ZkNodeProps m = new ZkNodeProps(Overseer.QUEUE_OPERATION, "state", 
-        ZkStateReader.STATE_PROP, ZkStateReader.DOWN, 
-        ZkStateReader.BASE_URL_PROP, replicaCoreProps.getBaseUrl(), 
-        ZkStateReader.CORE_NAME_PROP, replicaCoreProps.getCoreName(),
-        ZkStateReader.NODE_NAME_PROP, replicaCoreProps.getNodeName(),
-        ZkStateReader.SHARD_ID_PROP, shardId,
-        ZkStateReader.COLLECTION_PROP, collection);
-    log.warn("Leader is publishing core={} state={} on behalf of un-reachable replica {}; forcePublishState? "+forcePublishState,
-        replicaCoreName, ZkStateReader.DOWN, replicaUrl);
-    overseerJobQueue.offer(ZkStateReader.toJSON(m));
+    if (publishDownState || forcePublishState) {
+      String replicaCoreName = replicaCoreProps.getCoreName();    
+      ZkNodeProps m = new ZkNodeProps(Overseer.QUEUE_OPERATION, "state", 
+          ZkStateReader.STATE_PROP, ZkStateReader.DOWN, 
+          ZkStateReader.BASE_URL_PROP, replicaCoreProps.getBaseUrl(), 
+          ZkStateReader.CORE_NAME_PROP, replicaCoreProps.getCoreName(),
+          ZkStateReader.NODE_NAME_PROP, replicaCoreProps.getNodeName(),
+          ZkStateReader.SHARD_ID_PROP, shardId,
+          ZkStateReader.COLLECTION_PROP, collection);
+      log.warn("Leader is publishing core={} state={} on behalf of un-reachable replica {}; forcePublishState? "+forcePublishState,
+          replicaCoreName, ZkStateReader.DOWN, replicaUrl);
+      overseerJobQueue.offer(ZkStateReader.toJSON(m));      
+    }
     
     return nodeIsLive;
   }  

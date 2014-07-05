@@ -39,6 +39,8 @@ import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.LongBitSet;
+import org.apache.lucene.util.LongValues;
+import org.apache.lucene.util.packed.PackedInts;
 
 /** 
  * Abstract API that consumes numeric, binary and
@@ -131,7 +133,8 @@ public abstract class DocValuesConsumer implements Closeable {
                         return new Iterator<Number>() {
                           int readerUpto = -1;
                           int docIDUpto;
-                          Long nextValue;
+                          long nextValue;
+                          boolean nextHasValue;
                           AtomicReader currentReader;
                           NumericDocValues currentValues;
                           Bits currentLiveDocs;
@@ -155,7 +158,7 @@ public abstract class DocValuesConsumer implements Closeable {
                             }
                             assert nextIsSet;
                             nextIsSet = false;
-                            return nextValue;
+                            return nextHasValue ? nextValue : null;
                           }
 
                           private boolean setNext() {
@@ -178,10 +181,11 @@ public abstract class DocValuesConsumer implements Closeable {
 
                               if (currentLiveDocs == null || currentLiveDocs.get(docIDUpto)) {
                                 nextIsSet = true;
-                                if (currentDocsWithField.get(docIDUpto)) {
-                                  nextValue = currentValues.get(docIDUpto);
+                                nextValue = currentValues.get(docIDUpto);
+                                if (nextValue == 0 && currentDocsWithField.get(docIDUpto) == false) {
+                                  nextHasValue = false;
                                 } else {
-                                  nextValue = null;
+                                  nextHasValue = true;
                                 }
                                 docIDUpto++;
                                 return true;
@@ -439,12 +443,14 @@ public abstract class DocValuesConsumer implements Closeable {
     
     // step 1: iterate thru each sub and mark terms still in use
     TermsEnum liveTerms[] = new TermsEnum[dvs.length];
+    long[] weights = new long[liveTerms.length];
     for (int sub = 0; sub < liveTerms.length; sub++) {
       AtomicReader reader = readers[sub];
       SortedDocValues dv = dvs[sub];
       Bits liveDocs = reader.getLiveDocs();
       if (liveDocs == null) {
         liveTerms[sub] = dv.termsEnum();
+        weights[sub] = dv.getValueCount();
       } else {
         LongBitSet bitset = new LongBitSet(dv.getValueCount());
         for (int i = 0; i < reader.maxDoc(); i++) {
@@ -456,11 +462,12 @@ public abstract class DocValuesConsumer implements Closeable {
           }
         }
         liveTerms[sub] = new BitsFilteredTermsEnum(dv.termsEnum(), bitset);
+        weights[sub] = bitset.cardinality();
       }
     }
     
     // step 2: create ordinal map (this conceptually does the "merging")
-    final OrdinalMap map = new OrdinalMap(this, liveTerms);
+    final OrdinalMap map = OrdinalMap.build(this, liveTerms, weights, PackedInts.COMPACT);
     
     // step 3: add field
     addSortedField(fieldInfo,
@@ -505,6 +512,7 @@ public abstract class DocValuesConsumer implements Closeable {
               int nextValue;
               AtomicReader currentReader;
               Bits currentLiveDocs;
+              LongValues currentMap;
               boolean nextIsSet;
 
               @Override
@@ -539,6 +547,7 @@ public abstract class DocValuesConsumer implements Closeable {
                     if (readerUpto < readers.length) {
                       currentReader = readers[readerUpto];
                       currentLiveDocs = currentReader.getLiveDocs();
+                      currentMap = map.getGlobalOrds(readerUpto);
                     }
                     docIDUpto = 0;
                     continue;
@@ -547,7 +556,7 @@ public abstract class DocValuesConsumer implements Closeable {
                   if (currentLiveDocs == null || currentLiveDocs.get(docIDUpto)) {
                     nextIsSet = true;
                     int segOrd = dvs[readerUpto].getOrd(docIDUpto);
-                    nextValue = segOrd == -1 ? -1 : (int) map.getGlobalOrd(readerUpto, segOrd);
+                    nextValue = segOrd == -1 ? -1 : (int) currentMap.get(segOrd);
                     docIDUpto++;
                     return true;
                   }
@@ -573,12 +582,14 @@ public abstract class DocValuesConsumer implements Closeable {
     
     // step 1: iterate thru each sub and mark terms still in use
     TermsEnum liveTerms[] = new TermsEnum[dvs.length];
+    long[] weights = new long[liveTerms.length];
     for (int sub = 0; sub < liveTerms.length; sub++) {
       AtomicReader reader = readers[sub];
       SortedSetDocValues dv = dvs[sub];
       Bits liveDocs = reader.getLiveDocs();
       if (liveDocs == null) {
         liveTerms[sub] = dv.termsEnum();
+        weights[sub] = dv.getValueCount();
       } else {
         LongBitSet bitset = new LongBitSet(dv.getValueCount());
         for (int i = 0; i < reader.maxDoc(); i++) {
@@ -591,11 +602,12 @@ public abstract class DocValuesConsumer implements Closeable {
           }
         }
         liveTerms[sub] = new BitsFilteredTermsEnum(dv.termsEnum(), bitset);
+        weights[sub] = bitset.cardinality();
       }
     }
     
     // step 2: create ordinal map (this conceptually does the "merging")
-    final OrdinalMap map = new OrdinalMap(this, liveTerms);
+    final OrdinalMap map = OrdinalMap.build(this, liveTerms, weights, PackedInts.COMPACT);
     
     // step 3: add field
     addSortedSetField(fieldInfo,
@@ -707,6 +719,7 @@ public abstract class DocValuesConsumer implements Closeable {
               long nextValue;
               AtomicReader currentReader;
               Bits currentLiveDocs;
+              LongValues currentMap;
               boolean nextIsSet;
               long ords[] = new long[8];
               int ordUpto;
@@ -751,6 +764,7 @@ public abstract class DocValuesConsumer implements Closeable {
                     if (readerUpto < readers.length) {
                       currentReader = readers[readerUpto];
                       currentLiveDocs = currentReader.getLiveDocs();
+                      currentMap = map.getGlobalOrds(readerUpto);
                     }
                     docIDUpto = 0;
                     continue;
@@ -766,7 +780,7 @@ public abstract class DocValuesConsumer implements Closeable {
                       if (ordLength == ords.length) {
                         ords = ArrayUtil.grow(ords, ordLength+1);
                       }
-                      ords[ordLength] = map.getGlobalOrd(readerUpto, ord);
+                      ords[ordLength] = currentMap.get(ord);
                       ordLength++;
                     }
                     docIDUpto++;
